@@ -1,4 +1,5 @@
 .DS_Store
 .env
+__pycache__/
 analysis_results/
 report/

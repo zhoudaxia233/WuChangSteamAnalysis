@@ -194,25 +194,37 @@ class ReviewAnalyzer:
 
 评论内容: "{review_text}"
 评论类型: {sentiment}
+评论长度: {'短评' if len(review_text) <= 50 else '长评' if len(review_text) >= 200 else '中等长度'}
 
 可选类别:
 {category_list}
 
-要求:
+**重要规则**:
 1. 仔细理解评论的语义和情感倾向
 2. 注意识别反讽、阴阳怪气等表达方式
 3. 一条评论可以属于多个类别
 4. 只返回适用的类别名称，用逗号分隔
-5. 如果没有明确的类别，返回"无明确类别"
-6. 必须从上述类别中选择，不要自创类别
+5. 必须从上述类别中选择，不要自创类别
+6. 短评（≤50字）：只选1个类别
+7. **"其他"类别规则**：
+   - "其他" = 没有具体理由的纯粹表态（如"垃圾"、"神作"）
+   - 如果选择"其他"，就只能是"其他"，不能有任何其他类别
+   - 如果有具体问题/优点，就不能选"其他"
+8. 长评：可以多类别，但必须真的涉及多个方面
 
-示例输出格式: "剧情故事,美术音效" 或 "游戏质量" 或 "无明确类别"
+**输出格式**：只输出类别名称，多个用逗号分隔
+**严禁**：同时输出"其他"和任何具体类别
+
+正确示例:
+- "其他" （纯粹表态）
+- "游戏质量" （有具体问题）
+- "剧情故事,美术音效" （长评多方面）
 
 输出:"""
 
         ai_response = self._call_deepseek_api(prompt)
 
-        if not ai_response or ai_response == "无明确类别":
+        if not ai_response:
             return []
 
         # 解析AI响应
@@ -223,6 +235,15 @@ class ReviewAnalyzer:
             cat = cat.strip()
             if cat and cat != "无明确类别" and cat in categories:
                 result_categories.append(cat)
+
+        # 强制执行"其他"类别的排他性
+        if "其他" in result_categories and len(result_categories) > 1:
+            # 如果同时包含"其他"和其他类别，优先选择具体类别
+            result_categories = [cat for cat in result_categories if cat != "其他"]
+            print(f"⚠️  AI违反排他性规则，自动修正: 移除'其他'，保留{result_categories}")
+
+            # 可选：在详细日志中记录原始AI响应（用于调试）
+            # print(f"   原始AI响应: {ai_response}")
 
         return result_categories
 
