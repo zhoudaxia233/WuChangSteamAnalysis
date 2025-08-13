@@ -22,17 +22,39 @@ class ReviewAnalyzer:
         初始化AI分类器
 
         Args:
-            api_key: DeepSeek API密钥，如果不提供则从环境变量读取
+            api_key: API密钥，如果不提供则从环境变量读取
         """
-        self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
+        # 支持多种API提供商
+        self.api_provider = os.getenv("API_PROVIDER", "deepseek").lower()
 
-        if not self.api_key:
-            raise ValueError(
-                "DeepSeek API密钥未找到！请在.env文件中设置DEEPSEEK_API_KEY"
+        if self.api_provider == "openai":
+            self.api_key = api_key or os.getenv("OPENAI_API_KEY")
+            if not self.api_key:
+                raise ValueError(
+                    "OpenAI API密钥未找到！请在.env文件中设置OPENAI_API_KEY"
+                )
+            self.client = OpenAI(api_key=self.api_key)
+            self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        elif self.api_provider == "deepseek":
+            self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
+            if not self.api_key:
+                raise ValueError(
+                    "DeepSeek API密钥未找到！请在.env文件中设置DEEPSEEK_API_KEY"
+                )
+            self.client = OpenAI(
+                api_key=self.api_key, base_url="https://api.deepseek.com"
             )
+            self.model = "deepseek-chat"
+        elif self.api_provider == "ollama":
+            # Ollama本地模型，不需要API密钥
+            self.api_key = "ollama-local"  # 占位符
+            ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+            self.client = OpenAI(api_key="ollama", base_url=f"{ollama_host}/v1")
+            self.model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+        else:
+            raise ValueError(f"不支持的API提供商: {self.api_provider}")
 
-        # 初始化OpenAI客户端，使用DeepSeek的base_url
-        self.client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com")
+        print(f"🤖 使用API: {self.api_provider.upper()} ({self.model})")
 
         # 进度保存相关
         self.checkpoint_file = None
@@ -75,15 +97,56 @@ class ReviewAnalyzer:
         print("🔍 正在测试API连接...")
 
         try:
-            response = self.client.chat.completions.create(
-                model="deepseek-chat",
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant"},
-                    {"role": "user", "content": "请回复'连接成功'"},
-                ],
-                max_tokens=10,
-                temperature=0.1,
-            )
+            # 根据API提供商使用不同的参数
+            if self.api_provider == "openai":
+                # 根据模型类型调整参数
+                if "gpt-5" in self.model or "o1" in self.model:
+                    # 某些OpenAI模型不支持temperature参数或有限制
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "You are a helpful assistant",
+                            },
+                            {"role": "user", "content": "请回复'连接成功'"},
+                        ],
+                        max_completion_tokens=10,
+                    )
+                else:
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": "You are a helpful assistant",
+                            },
+                            {"role": "user", "content": "请回复'连接成功'"},
+                        ],
+                        max_completion_tokens=10,
+                        temperature=0.1,
+                    )
+            elif self.api_provider == "ollama":
+                # Ollama使用标准格式
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant"},
+                        {"role": "user", "content": "请回复'连接成功'"},
+                    ],
+                    max_tokens=10,
+                    temperature=0.1,
+                )
+            else:  # deepseek
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant"},
+                        {"role": "user", "content": "请回复'连接成功'"},
+                    ],
+                    max_tokens=10,
+                    temperature=0.1,
+                )
 
             content = response.choices[0].message.content.strip()
             print("✅ API连接测试成功")
@@ -129,16 +192,42 @@ class ReviewAnalyzer:
             print(f"警告: 无法加载进度文件 {checkpoint_file}: {e}")
         return {}
 
-    def _call_deepseek_api(self, prompt: str, max_retries: int = 3) -> str:
-        """调用DeepSeek API"""
+    def _call_ai_api(self, prompt: str, max_retries: int = 3) -> str:
+        """调用AI API"""
         for attempt in range(max_retries):
             try:
-                response = self.client.chat.completions.create(
-                    model="deepseek-chat",
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=0.1,
-                    max_tokens=500,
-                )
+                # 根据API提供商使用不同的参数
+                if self.api_provider == "openai":
+                    # 根据模型类型调整参数
+                    if "gpt-5" in self.model or "o1" in self.model:
+                        # 某些OpenAI模型不支持temperature参数或有限制
+                        response = self.client.chat.completions.create(
+                            model=self.model,
+                            messages=[{"role": "user", "content": prompt}],
+                            max_completion_tokens=500,
+                        )
+                    else:
+                        response = self.client.chat.completions.create(
+                            model=self.model,
+                            messages=[{"role": "user", "content": prompt}],
+                            temperature=0.1,
+                            max_completion_tokens=500,
+                        )
+                elif self.api_provider == "ollama":
+                    # Ollama使用标准OpenAI格式，但使用max_tokens
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.1,
+                        max_tokens=500,
+                    )
+                else:  # deepseek
+                    response = self.client.chat.completions.create(
+                        model=self.model,
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.1,
+                        max_tokens=500,
+                    )
 
                 # 统计token使用量
                 if hasattr(response, "usage") and response.usage:
@@ -212,20 +301,37 @@ class ReviewAnalyzer:
    - 如果有具体问题/优点，就不能选"其他"
 8. 长评：可以多类别，但必须真的涉及多个方面
 
-**输出格式**：只输出类别名称，多个用逗号分隔
-**严禁**：同时输出"其他"和任何具体类别
+输出要求：
+- 只输出类别名称，用逗号分隔
+- 不要输出任何解释、理由、JSON、思考过程或包含<think>标签的内容
+- 如果没有明确类别，返回"无明确类别"
 
 正确示例:
-- "其他" （纯粹表态）
-- "游戏质量" （有具体问题）
-- "剧情故事,美术音效" （长评多方面）
+- "其他"
+- "游戏质量"
+- "剧情故事,美术音效"
 
 输出:"""
 
-        ai_response = self._call_deepseek_api(prompt)
+        ai_response = self._call_ai_api(prompt)
 
         if not ai_response:
-            return []
+            print(f"❌ API返回空响应，这是技术问题，停止分析: {review_text[:50]}...")
+            raise Exception(f"API调用失败：返回空响应。评论: {review_text[:50]}...")
+
+        # 清理模型可能返回的思考内容和标签，避免影响解析
+        try:
+            import re
+
+            # 移除<think>...</think>内容
+            ai_response = re.sub(
+                r"<think>[\s\S]*?</think>", "", ai_response, flags=re.IGNORECASE
+            )
+            # 去掉任何残余的尖括号标签
+            ai_response = re.sub(r"<[^>]+>", "", ai_response)
+            ai_response = ai_response.strip()
+        except Exception:
+            pass
 
         # 解析AI响应
         result_categories = []
@@ -233,8 +339,26 @@ class ReviewAnalyzer:
 
         for cat in raw_categories:
             cat = cat.strip()
-            if cat and cat != "无明确类别" and cat in categories:
-                result_categories.append(cat)
+            # 移除可能的标点符号
+            cat = cat.rstrip("。，,.")
+
+            if cat and cat != "无明确类别":
+                # 严格匹配
+                if cat in categories:
+                    result_categories.append(cat)
+                else:
+                    # 如果严格匹配失败，尝试模糊匹配
+                    found = False
+                    for valid_cat in categories:
+                        if cat.lower() == valid_cat.lower():  # 大小写不敏感
+                            result_categories.append(valid_cat)
+                            found = True
+                            break
+
+                    if not found:
+                        print(
+                            f"⚠️  无法识别的类别: '{cat}' (原始回复: {ai_response[:100]}...)"
+                        )
 
         # 强制执行"其他"类别的排他性
         if "其他" in result_categories and len(result_categories) > 1:
@@ -242,8 +366,11 @@ class ReviewAnalyzer:
             result_categories = [cat for cat in result_categories if cat != "其他"]
             print(f"⚠️  AI违反排他性规则，自动修正: 移除'其他'，保留{result_categories}")
 
-            # 可选：在详细日志中记录原始AI响应（用于调试）
-            # print(f"   原始AI响应: {ai_response}")
+        # 防空分类：如果解析后无有效类别，自动分配到"其他"类别
+        # 这通常是因为模型返回了无法识别的类别名称，属于理解问题而非技术问题
+        if not result_categories:
+            result_categories = ["其他"]
+            print(f"⚠️  AI返回无法识别的类别，归类为'其他': {review_text[:50]}...")
 
         return result_categories
 
@@ -282,25 +409,30 @@ class ReviewAnalyzer:
         # 存储进度相关变量
         self.total_count = len(df_to_process)
         self.sample_size = sample_size
-        self.current_progress = []
 
-        # 检查是否有断点文件
+        # 先检查是否有断点文件，再初始化进度
         checkpoint_data = self._load_checkpoint(self.checkpoint_file)
         start_idx = 0
 
+        # 根据checkpoint数据初始化current_progress
         if checkpoint_data and checkpoint_data.get("progress_data"):
-            print(f"🔄 发现断点文件，已处理 {checkpoint_data['processed_count']} 条")
+            self.current_progress = checkpoint_data["progress_data"]
+        else:
+            self.current_progress = []
+
+        # 如果有checkpoint数据，询问用户操作
+        if len(self.current_progress) > 0:
+            print(f"🔄 发现断点文件，已处理 {len(self.current_progress)} 条")
             print("选择操作：")
-            print("1. 继续AI分析 (Y)")
+            print("1. 继续AI分析 (C)")
             print("2. 基于现有数据生成报告 (R)")
-            print("3. 重新开始分析 (N)")
-            choice = input("请选择 (Y/r/n): ").lower().strip()
+            choice = input("请选择 (C/r): ").lower().strip()
 
             if choice == "r":
                 print("🎯 基于现有数据生成报告...")
                 # 构建简化的DataFrame用于报告生成
                 classified_data = []
-                for item in checkpoint_data["progress_data"]:
+                for item in self.current_progress:
                     row = {
                         "index": item["index"],
                         "ai_categories": item["categories"],
@@ -326,14 +458,12 @@ class ReviewAnalyzer:
                     classified_data.append(row)
 
                 return pd.DataFrame(classified_data)
-            elif choice != "n":
-                self.current_progress = checkpoint_data["progress_data"]
+            elif choice == "c" or choice == "":
                 start_idx = len(self.current_progress)
                 print(f"✅ 从第 {start_idx + 1} 条开始继续分析")
             else:
-                print("🔄 重新开始分析")
-                if os.path.exists(self.checkpoint_file):
-                    os.remove(self.checkpoint_file)
+                print("❌ 无效选择，退出程序")
+                return None
 
         total_reviews = len(df_to_process)
         start_time = time.time()
@@ -873,17 +1003,31 @@ def main():
         classifier = ReviewAnalyzer()
     except ValueError as e:
         print(f"错误: {e}")
-        print("请确保已设置DEEPSEEK_API_KEY环境变量")
+        print("请确保已正确配置API密钥环境变量")
         return
 
     # API连接测试
     if not classifier.test_api_connection():
         print("\n🚫 API连接测试失败，请检查配置后重试")
-        print("\n常见问题排查：")
-        print("1. 检查 .env 文件是否存在且包含正确的 DEEPSEEK_API_KEY")
-        print("2. 确认API密钥格式正确（以 sk- 开头）")
-        print("3. 验证API密钥是否有效且有足够余额")
-        print("4. 检查网络连接是否正常")
+        api_provider = os.getenv("API_PROVIDER", "deepseek").lower()
+        if api_provider == "openai":
+            print("\n常见问题排查（OpenAI）：")
+            print("1. 检查 .env 文件是否存在且包含正确的 OPENAI_API_KEY")
+            print("2. 确认API密钥格式正确（以 sk- 开头）")
+            print("3. 验证API密钥是否有效且有足够余额")
+            print("4. 检查网络连接是否正常")
+        elif api_provider == "ollama":
+            print("\n常见问题排查（Ollama）：")
+            print("1. 确认Ollama服务正在运行：ollama serve")
+            print("2. 检查模型是否已下载：ollama list")
+            print("3. 验证服务地址正确（默认：http://localhost:11434）")
+            print("4. 确认防火墙没有阻止本地连接")
+        else:
+            print("\n常见问题排查（DeepSeek）：")
+            print("1. 检查 .env 文件是否存在且包含正确的 DEEPSEEK_API_KEY")
+            print("2. 确认API密钥格式正确（以 sk- 开头）")
+            print("3. 验证API密钥是否有效且有足够余额")
+            print("4. 检查网络连接是否正常")
         return
 
     print("-" * 50)
