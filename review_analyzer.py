@@ -546,8 +546,10 @@ class ReviewAnalyzer:
 
         # 等待所有worker完成
         print("🔄 等待所有worker完成...")
-        for worker in workers:
-            worker.join(timeout=10)
+        for i, worker in enumerate(workers):
+            worker.join(timeout=5)  # 减少超时时间到5秒
+            if worker.is_alive():
+                print(f"⚠️ Worker {i+1} 仍在运行，强制继续...")
 
         # 最终保存
         self._save_checkpoint()
@@ -560,6 +562,8 @@ class ReviewAnalyzer:
         # 保留进度文件，不删除用户数据
         print(f"📄 分析结果已保存到: {self.checkpoint_file}")
         print("💡 如需重新分析，请手动删除进度文件")
+        print("")
+        print("🎯 下一步: 使用 report_generator.py 生成可视化报告")
 
         return self._rebuild_dataframe_from_progress(df_to_process)
 
@@ -1211,12 +1215,15 @@ def main():
     # 进行并行AI分类
     classified_df = classifier.classify_batch_parallel(reviews_df, None, output_dir)
 
-    # 生成报告
-    report_path = classifier.generate_report(classified_df, output_dir)
-
     print("\n=== AI分析完成 ===")
-    print(f"报告已生成: {report_path}")
-    print("可以用浏览器打开HTML报告查看详细结果！")
+    print(f"分析结果已保存到: {output_dir}/classification_progress.json")
+    print("")
+    print("📊 要生成可视化报告，请运行:")
+    print(
+        f"poetry run python report_generator.py {output_dir}/classification_progress.json --output report"
+    )
+    print("")
+    print("💡 报告生成器会自动检测原始CSV文件并生成包含图表的HTML报告")
 
 
 if __name__ == "__main__":
