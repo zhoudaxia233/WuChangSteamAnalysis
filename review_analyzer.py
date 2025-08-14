@@ -45,9 +45,6 @@ class ReviewAnalyzer:
             os.getenv("AUTO_SAVE_INTERVAL", "10")
         )  # 每10条保存一次
 
-        # Token统计
-        self.total_tokens = 0
-
         # API错误计数
         self.consecutive_failures = 0
         self.max_consecutive_failures = 3
@@ -58,7 +55,6 @@ class ReviewAnalyzer:
 
         # 线程安全的锁和停止标志
         self.progress_lock = threading.Lock()
-        self.token_lock = threading.Lock()
         self.stop_flag = threading.Event()
 
         # 设置信号处理器
@@ -167,11 +163,6 @@ class ReviewAnalyzer:
                     temperature=0.1,
                     max_tokens=500,
                 )
-
-                # 统计token使用量（线程安全）
-                if hasattr(response, "usage") and response.usage:
-                    with self.token_lock:
-                        self.total_tokens += response.usage.total_tokens
 
                 # 重置失败计数
                 self.consecutive_failures = 0
@@ -341,10 +332,8 @@ class ReviewAnalyzer:
         )
         worker.model = "deepseek-chat"
         worker.categories = self.categories
-        worker.total_tokens = 0
         worker.consecutive_failures = 0
         worker.max_consecutive_failures = 3
-        worker.token_lock = threading.Lock()
         return worker
 
     def _parallel_worker(
@@ -531,17 +520,9 @@ class ReviewAnalyzer:
                     current_total = start_idx + completed_count
                     progress_pct = current_total / total_reviews * 100
 
-                    # Token显示
-                    if self.total_tokens >= 1000000:
-                        token_display = f"{self.total_tokens/1000000:.1f}M"
-                    elif self.total_tokens >= 1000:
-                        token_display = f"{self.total_tokens/1000:.1f}K"
-                    else:
-                        token_display = str(self.total_tokens)
-
                     print(
                         f"🔄 并行处理进度: {current_total}/{total_reviews} ({progress_pct:.1f}%) "
-                        f"预计剩余: {remaining_time/60:.1f}分钟 | Tokens: {token_display}"
+                        f"预计剩余: {remaining_time/60:.1f}分钟"
                     )
 
                 # 定期保存进度（每30秒或每50条）
@@ -716,17 +697,9 @@ class ReviewAnalyzer:
                 else:
                     remaining = 0
 
-                # 格式化Token显示
-                if self.total_tokens >= 1000000:
-                    token_display = f"{self.total_tokens/1000000:.1f}M"
-                elif self.total_tokens >= 1000:
-                    token_display = f"{self.total_tokens/1000:.1f}K"
-                else:
-                    token_display = str(self.total_tokens)
-
                 print(
                     f"AI分析进度: {idx + 1}/{total_reviews} ({(idx + 1)/total_reviews*100:.1f}%) "
-                    f"预计剩余: {remaining/60:.1f}分钟 | 已用Tokens: {token_display}"
+                    f"预计剩余: {remaining/60:.1f}分钟"
                 )
 
             review_text = str(row.get("review_text", ""))
@@ -785,18 +758,9 @@ class ReviewAnalyzer:
 
         df_to_process["ai_categories"] = ai_categories
 
-        # 格式化最终Token显示
-        if self.total_tokens >= 1000000:
-            final_token_display = f"{self.total_tokens/1000000:.2f}M"
-        elif self.total_tokens >= 1000:
-            final_token_display = f"{self.total_tokens/1000:.1f}K"
-        else:
-            final_token_display = str(self.total_tokens)
-
         print(
             f"AI分类完成！处理了 {len(self.current_progress)} 条评论，耗时 {(time.time() - start_time)/60:.1f} 分钟"
         )
-        print(f"总计使用Tokens: {final_token_display}")
 
         # 保留进度文件，不删除用户数据
         print(f"📄 分析结果已保存到: {self.checkpoint_file}")
