@@ -12,6 +12,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from dotenv import load_dotenv
 from openai import OpenAI
+import queue
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 load_dotenv()
 
@@ -19,42 +22,22 @@ load_dotenv()
 class ReviewAnalyzer:
     def __init__(self, api_key: str = None):
         """
-        初始化AI分类器
+        初始化DeepSeek AI分类器
 
         Args:
-            api_key: API密钥，如果不提供则从环境变量读取
+            api_key: DeepSeek API密钥，如果不提供则从环境变量读取
         """
-        # 支持多种API提供商
-        self.api_provider = os.getenv("API_PROVIDER", "deepseek").lower()
-
-        if self.api_provider == "openai":
-            self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-            if not self.api_key:
-                raise ValueError(
-                    "OpenAI API密钥未找到！请在.env文件中设置OPENAI_API_KEY"
-                )
-            self.client = OpenAI(api_key=self.api_key)
-            self.model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-        elif self.api_provider == "deepseek":
-            self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
-            if not self.api_key:
-                raise ValueError(
-                    "DeepSeek API密钥未找到！请在.env文件中设置DEEPSEEK_API_KEY"
-                )
-            self.client = OpenAI(
-                api_key=self.api_key, base_url="https://api.deepseek.com"
+        # 只支持DeepSeek
+        self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY")
+        if not self.api_key:
+            raise ValueError(
+                "DeepSeek API密钥未找到！请在.env文件中设置DEEPSEEK_API_KEY"
             )
-            self.model = "deepseek-chat"
-        elif self.api_provider == "ollama":
-            # Ollama本地模型，不需要API密钥
-            self.api_key = "ollama-local"  # 占位符
-            ollama_host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-            self.client = OpenAI(api_key="ollama", base_url=f"{ollama_host}/v1")
-            self.model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-        else:
-            raise ValueError(f"不支持的API提供商: {self.api_provider}")
 
-        print(f"🤖 使用API: {self.api_provider.upper()} ({self.model})")
+        self.client = OpenAI(api_key=self.api_key, base_url="https://api.deepseek.com")
+        self.model = "deepseek-chat"
+
+        print(f"🤖 使用DeepSeek API ({self.model})")
 
         # 进度保存相关
         self.checkpoint_file = None
@@ -68,6 +51,15 @@ class ReviewAnalyzer:
         # API错误计数
         self.consecutive_failures = 0
         self.max_consecutive_failures = 3
+
+        # 并行处理配置
+        self.parallel_workers = int(os.getenv("PARALLEL_WORKERS", "5"))
+        self.request_delay = float(os.getenv("REQUEST_DELAY", "0.1"))
+
+        # 线程安全的锁和停止标志
+        self.progress_lock = threading.Lock()
+        self.token_lock = threading.Lock()
+        self.stop_flag = threading.Event()
 
         # 设置信号处理器
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -93,76 +85,49 @@ class ReviewAnalyzer:
         }
 
     def test_api_connection(self) -> bool:
-        """测试API连接"""
-        print("🔍 正在测试API连接...")
+        """测试DeepSeek API连接"""
+        print("🔍 正在测试DeepSeek API连接...")
 
         try:
-            # 根据API提供商使用不同的参数
-            if self.api_provider == "openai":
-                # 根据模型类型调整参数
-                if "gpt-5" in self.model or "o1" in self.model:
-                    # 某些OpenAI模型不支持temperature参数或有限制
-                    response = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": "You are a helpful assistant",
-                            },
-                            {"role": "user", "content": "请回复'连接成功'"},
-                        ],
-                        max_completion_tokens=10,
-                    )
-                else:
-                    response = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[
-                            {
-                                "role": "system",
-                                "content": "You are a helpful assistant",
-                            },
-                            {"role": "user", "content": "请回复'连接成功'"},
-                        ],
-                        max_completion_tokens=10,
-                        temperature=0.1,
-                    )
-            elif self.api_provider == "ollama":
-                # Ollama使用标准格式
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant"},
-                        {"role": "user", "content": "请回复'连接成功'"},
-                    ],
-                    max_tokens=10,
-                    temperature=0.1,
-                )
-            else:  # deepseek
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant"},
-                        {"role": "user", "content": "请回复'连接成功'"},
-                    ],
-                    max_tokens=10,
-                    temperature=0.1,
-                )
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant"},
+                    {"role": "user", "content": "请回复'连接成功'"},
+                ],
+                max_tokens=10,
+                temperature=0.1,
+            )
 
             content = response.choices[0].message.content.strip()
-            print("✅ API连接测试成功")
+            print("✅ DeepSeek API连接测试成功")
             print(f"响应内容: {content}")
             return True
 
         except Exception as e:
-            print(f"❌ API连接测试失败: {e}")
+            print(f"❌ DeepSeek API连接测试失败: {e}")
             return False
 
     def _signal_handler(self, signum, frame):
-        """处理中断信号，保存进度"""
-        print(f"\n\n⚠️  检测到中断信号 ({signum})，正在保存进度...")
+        """处理中断信号，优雅停止所有worker"""
+        print(f"\n\n⚠️  检测到中断信号 ({signum})，正在停止所有worker...")
+
+        # 设置停止标志，通知所有worker停止
+        if hasattr(self, "stop_flag"):
+            self.stop_flag.set()
+
+        # 保存当前进度
         if hasattr(self, "current_progress") and self.checkpoint_file:
             self._save_checkpoint()
             print(f"✅ 进度已保存到: {self.checkpoint_file}")
+
+        print("🔄 等待worker优雅退出...")
+
+        # 给worker一些时间来完成当前任务
+        import time
+
+        time.sleep(2)
+
         print("🔄 安全退出")
         sys.exit(0)
 
@@ -193,45 +158,20 @@ class ReviewAnalyzer:
         return {}
 
     def _call_ai_api(self, prompt: str, max_retries: int = 3) -> str:
-        """调用AI API"""
+        """调用DeepSeek API"""
         for attempt in range(max_retries):
             try:
-                # 根据API提供商使用不同的参数
-                if self.api_provider == "openai":
-                    # 根据模型类型调整参数
-                    if "gpt-5" in self.model or "o1" in self.model:
-                        # 某些OpenAI模型不支持temperature参数或有限制
-                        response = self.client.chat.completions.create(
-                            model=self.model,
-                            messages=[{"role": "user", "content": prompt}],
-                            max_completion_tokens=500,
-                        )
-                    else:
-                        response = self.client.chat.completions.create(
-                            model=self.model,
-                            messages=[{"role": "user", "content": prompt}],
-                            temperature=0.1,
-                            max_completion_tokens=500,
-                        )
-                elif self.api_provider == "ollama":
-                    # Ollama使用标准OpenAI格式，但使用max_tokens
-                    response = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.1,
-                        max_tokens=500,
-                    )
-                else:  # deepseek
-                    response = self.client.chat.completions.create(
-                        model=self.model,
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.1,
-                        max_tokens=500,
-                    )
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1,
+                    max_tokens=500,
+                )
 
-                # 统计token使用量
+                # 统计token使用量（线程安全）
                 if hasattr(response, "usage") and response.usage:
-                    self.total_tokens += response.usage.total_tokens
+                    with self.token_lock:
+                        self.total_tokens += response.usage.total_tokens
 
                 # 重置失败计数
                 self.consecutive_failures = 0
@@ -240,7 +180,7 @@ class ReviewAnalyzer:
             except Exception as e:
                 self.consecutive_failures += 1
                 if self.consecutive_failures == 1:  # 只在第一次失败时显示详细错误
-                    print(f"\n❌ API调用失败: {e}")
+                    print(f"\n❌ DeepSeek API调用失败: {e}")
 
                 if self.consecutive_failures >= self.max_consecutive_failures:
                     print(
@@ -373,6 +313,294 @@ class ReviewAnalyzer:
             print(f"⚠️  AI返回无法识别的类别，归类为'其他': {review_text[:50]}...")
 
         return result_categories
+
+    def _insert_result_in_order(self, result):
+        """按index顺序插入结果，保持progress_data有序"""
+        index = result["index"]
+
+        # 二分查找插入位置
+        left, right = 0, len(self.current_progress)
+        while left < right:
+            mid = (left + right) // 2
+            if self.current_progress[mid]["index"] < index:
+                left = mid + 1
+            else:
+                right = mid
+
+        # 在正确位置插入
+        with self.progress_lock:
+            self.current_progress.insert(left, result)
+
+    def _create_worker_analyzer(self) -> "ReviewAnalyzer":
+        """为每个worker创建独立的ReviewAnalyzer实例"""
+        # 创建一个简化的worker实例，不设置signal处理器
+        worker = object.__new__(ReviewAnalyzer)  # 不调用__init__
+        worker.api_key = self.api_key
+        worker.client = OpenAI(
+            api_key=self.api_key, base_url="https://api.deepseek.com"
+        )
+        worker.model = "deepseek-chat"
+        worker.categories = self.categories
+        worker.total_tokens = 0
+        worker.consecutive_failures = 0
+        worker.max_consecutive_failures = 3
+        worker.token_lock = threading.Lock()
+        return worker
+
+    def _parallel_worker(
+        self,
+        task_queue: queue.Queue,
+        results_queue: queue.Queue,
+        reviews_df: pd.DataFrame,
+        worker_id: int,
+    ):
+        """并行worker函数，处理任务队列中的评论"""
+        # 为这个worker创建独立的API客户端
+        worker_analyzer = self._create_worker_analyzer()
+        processed_count = 0
+
+        print(f"🚀 Worker {worker_id} 启动")
+
+        while True:
+            # 检查停止标志
+            if self.stop_flag.is_set():
+                print(f"🛑 Worker {worker_id} 收到停止信号，正在退出...")
+                break
+
+            try:
+                # 从队列获取任务，1秒超时
+                task = task_queue.get(timeout=1)
+                if task is None:  # 停止信号
+                    break
+
+                idx, df_idx = task
+                row = reviews_df.loc[df_idx]
+                review_text = str(row.get("review_text", ""))
+                is_positive = bool(row.get("voted_up", True))
+
+                try:
+                    # 处理单条评论
+                    categories = worker_analyzer.classify_single_review(
+                        review_text, is_positive
+                    )
+
+                    # 构建结果
+                    result = {
+                        "index": df_idx,
+                        "categories": categories,
+                        "is_positive": is_positive,
+                    }
+
+                    # 将结果放入结果队列
+                    results_queue.put(result)
+                    processed_count += 1
+
+                    # 控制请求频率
+                    time.sleep(self.request_delay)
+
+                except Exception as e:
+                    print(f"⚠️ Worker {worker_id} 处理评论 {idx} 失败: {e}")
+                    # 即使失败也要返回一个结果，避免丢失进度
+                    result = {
+                        "index": df_idx,
+                        "categories": [],
+                        "is_positive": is_positive,
+                        "error": str(e),
+                    }
+                    results_queue.put(result)
+
+                # 标记任务完成
+                task_queue.task_done()
+
+            except queue.Empty:
+                # 队列为空，继续等待
+                continue
+            except Exception as e:
+                print(f"❌ Worker {worker_id} 发生严重错误: {e}")
+                break
+
+        print(f"✅ Worker {worker_id} 完成，处理了 {processed_count} 条评论")
+
+    def classify_batch_parallel(
+        self,
+        reviews_df: pd.DataFrame,
+        sample_size: int = None,
+        output_dir: str = "analysis_results",
+    ) -> pd.DataFrame:
+        """
+        并行批量分类评论（支持断点续传）
+
+        Args:
+            reviews_df: 评论数据
+            sample_size: 样本大小，None表示全部处理
+            output_dir: 输出目录，用于生成checkpoint文件名
+
+        Returns:
+            添加了分类结果的DataFrame
+        """
+        print("🚀 开始并行AI分类分析...")
+        print(
+            f"🔧 配置: {self.parallel_workers}个并行worker，请求间隔{self.request_delay}秒"
+        )
+
+        # 选择处理范围
+        if sample_size and sample_size < len(reviews_df):
+            df_to_process = reviews_df.sample(n=sample_size, random_state=42).copy()
+            print(f"随机抽样 {sample_size} 条评论进行分析（共 {len(reviews_df)} 条）")
+        else:
+            df_to_process = reviews_df.copy()
+            print(f"处理全部 {len(df_to_process)} 条评论")
+
+        # 设置checkpoint文件
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        self.checkpoint_file = os.path.join(output_dir, "classification_progress.json")
+
+        # 存储进度相关变量
+        self.total_count = len(df_to_process)
+        self.sample_size = sample_size
+
+        # 加载已有进度
+        checkpoint_data = self._load_checkpoint(self.checkpoint_file)
+        start_idx = 0
+
+        if checkpoint_data and checkpoint_data.get("progress_data"):
+            self.current_progress = checkpoint_data["progress_data"]
+            start_idx = len(self.current_progress)
+            print(
+                f"🔄 发现断点文件，已处理 {start_idx} 条，从第 {start_idx + 1} 条开始并行处理"
+            )
+        else:
+            self.current_progress = []
+
+        total_reviews = len(df_to_process)
+        remaining_reviews = total_reviews - start_idx
+
+        if remaining_reviews <= 0:
+            print("✅ 所有评论已处理完成！")
+            return self._rebuild_dataframe_from_progress(df_to_process)
+
+        print(f"📊 剩余 {remaining_reviews} 条评论需要处理")
+
+        # 创建任务队列和结果队列
+        task_queue = queue.Queue()
+        results_queue = queue.Queue()
+
+        # 将剩余任务放入队列
+        for idx in range(start_idx, total_reviews):
+            df_idx = df_to_process.iloc[idx].name
+            task_queue.put((idx, df_idx))
+
+        # 启动并行workers
+        start_time = time.time()
+        workers = []
+
+        for worker_id in range(self.parallel_workers):
+            worker = threading.Thread(
+                target=self._parallel_worker,
+                args=(task_queue, results_queue, df_to_process, worker_id),
+            )
+            worker.start()
+            workers.append(worker)
+
+        # 监控进度并收集结果
+        completed_count = 0
+        last_save_time = time.time()
+
+        while completed_count < remaining_reviews:
+            # 检查是否需要停止
+            if self.stop_flag.is_set():
+                print("🛑 主线程收到停止信号，正在终止处理...")
+                break
+
+            try:
+                # 从结果队列获取结果
+                result = results_queue.get(timeout=2)
+                self._insert_result_in_order(result)
+                completed_count += 1
+
+                # 显示进度
+                if completed_count % 10 == 0 or completed_count == remaining_reviews:
+                    elapsed = time.time() - start_time
+                    if completed_count > 0:
+                        estimated_total = elapsed * remaining_reviews / completed_count
+                        remaining_time = estimated_total - elapsed
+                    else:
+                        remaining_time = 0
+
+                    current_total = start_idx + completed_count
+                    progress_pct = current_total / total_reviews * 100
+
+                    # Token显示
+                    if self.total_tokens >= 1000000:
+                        token_display = f"{self.total_tokens/1000000:.1f}M"
+                    elif self.total_tokens >= 1000:
+                        token_display = f"{self.total_tokens/1000:.1f}K"
+                    else:
+                        token_display = str(self.total_tokens)
+
+                    print(
+                        f"🔄 并行处理进度: {current_total}/{total_reviews} ({progress_pct:.1f}%) "
+                        f"预计剩余: {remaining_time/60:.1f}分钟 | Tokens: {token_display}"
+                    )
+
+                # 定期保存进度（每30秒或每50条）
+                current_time = time.time()
+                if (
+                    completed_count % 50 == 0
+                    or current_time - last_save_time > 30
+                    or completed_count == remaining_reviews
+                ):
+
+                    self._save_checkpoint()
+                    last_save_time = current_time
+
+            except queue.Empty:
+                # 检查是否所有worker都完成了
+                alive_workers = sum(1 for w in workers if w.is_alive())
+                if alive_workers == 0:
+                    print("⚠️ 所有worker已完成，但可能有未处理的任务")
+                    break
+                continue
+
+        # 等待所有worker完成
+        print("🔄 等待所有worker完成...")
+        for worker in workers:
+            worker.join(timeout=10)
+
+        # 最终保存
+        self._save_checkpoint()
+
+        print(
+            f"✅ 并行分析完成！共处理 {len(self.current_progress)} 条评论，"
+            f"耗时 {(time.time() - start_time)/60:.1f} 分钟"
+        )
+
+        # 保留进度文件，不删除用户数据
+        print(f"📄 分析结果已保存到: {self.checkpoint_file}")
+        print("💡 如需重新分析，请手动删除进度文件")
+
+        return self._rebuild_dataframe_from_progress(df_to_process)
+
+    def _rebuild_dataframe_from_progress(
+        self, df_to_process: pd.DataFrame
+    ) -> pd.DataFrame:
+        """从进度数据重建DataFrame"""
+        # 将结果应用到DataFrame
+        ai_categories = [[] for _ in range(len(df_to_process))]
+
+        for result in self.current_progress:
+            df_idx = result["index"]
+            categories = result["categories"]
+
+            try:
+                position = df_to_process.index.get_loc(df_idx)
+                ai_categories[position] = categories
+            except KeyError:
+                continue
+
+        df_to_process["ai_categories"] = ai_categories
+        return df_to_process
 
     def classify_batch(
         self,
@@ -570,11 +798,9 @@ class ReviewAnalyzer:
         )
         print(f"总计使用Tokens: {final_token_display}")
 
-        # 询问是否删除checkpoint文件
-        choice = input("分析完成，是否删除进度文件？(Y/n): ").lower().strip()
-        if choice != "n" and os.path.exists(self.checkpoint_file):
-            os.remove(self.checkpoint_file)
-            print("✅ 进度文件已删除")
+        # 保留进度文件，不删除用户数据
+        print(f"📄 分析结果已保存到: {self.checkpoint_file}")
+        print("💡 如需重新分析，请手动删除进度文件")
 
         return df_to_process
 
@@ -1008,32 +1234,18 @@ def main():
 
     # API连接测试
     if not classifier.test_api_connection():
-        print("\n🚫 API连接测试失败，请检查配置后重试")
-        api_provider = os.getenv("API_PROVIDER", "deepseek").lower()
-        if api_provider == "openai":
-            print("\n常见问题排查（OpenAI）：")
-            print("1. 检查 .env 文件是否存在且包含正确的 OPENAI_API_KEY")
-            print("2. 确认API密钥格式正确（以 sk- 开头）")
-            print("3. 验证API密钥是否有效且有足够余额")
-            print("4. 检查网络连接是否正常")
-        elif api_provider == "ollama":
-            print("\n常见问题排查（Ollama）：")
-            print("1. 确认Ollama服务正在运行：ollama serve")
-            print("2. 检查模型是否已下载：ollama list")
-            print("3. 验证服务地址正确（默认：http://localhost:11434）")
-            print("4. 确认防火墙没有阻止本地连接")
-        else:
-            print("\n常见问题排查（DeepSeek）：")
-            print("1. 检查 .env 文件是否存在且包含正确的 DEEPSEEK_API_KEY")
-            print("2. 确认API密钥格式正确（以 sk- 开头）")
-            print("3. 验证API密钥是否有效且有足够余额")
-            print("4. 检查网络连接是否正常")
+        print("\n🚫 DeepSeek API连接测试失败，请检查配置后重试")
+        print("\n常见问题排查：")
+        print("1. 检查 .env 文件是否存在且包含正确的 DEEPSEEK_API_KEY")
+        print("2. 确认API密钥格式正确（以 sk- 开头）")
+        print("3. 验证API密钥是否有效且有足够余额")
+        print("4. 检查网络连接是否正常")
         return
 
     print("-" * 50)
 
-    # 进行AI分类
-    classified_df = classifier.classify_batch(reviews_df, None, output_dir)
+    # 进行并行AI分类
+    classified_df = classifier.classify_batch_parallel(reviews_df, None, output_dir)
 
     # 生成报告
     report_path = classifier.generate_report(classified_df, output_dir)
