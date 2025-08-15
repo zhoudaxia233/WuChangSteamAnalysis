@@ -1052,10 +1052,7 @@ class ReviewAnalyzer:
                 <div class="stat-number">{stats['positive_reviews']/(stats['total_reviews'])*100:.1f}%</div>
                 <div>好评率</div>
             </div>
-            <div class="stat-card">
-                <div class="stat-number">{stats['uncategorized']}</div>
-                <div>无法分类</div>
-            </div>
+
         </div>
     </div>
     

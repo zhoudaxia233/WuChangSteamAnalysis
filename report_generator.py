@@ -145,7 +145,6 @@ class ReportGenerator:
             "positive_categories": {},
             "negative_categories": {},
             "multi_category_stats": {},
-            "uncategorized": 0,
         }
 
         # 分别统计好评和差评
@@ -188,17 +187,13 @@ class ReportGenerator:
 
         # 多类别统计
         multi_cat_counts = defaultdict(int)
-        uncategorized_count = 0
 
         for _, row in classified_df.iterrows():
             cat_count = len(row["ai_categories"])
-            if cat_count == 0:
-                uncategorized_count += 1
-            elif cat_count > 1:
+            if cat_count > 1:
                 multi_cat_counts[cat_count] += 1
 
         stats["multi_category_stats"] = dict(multi_cat_counts)
-        stats["uncategorized"] = uncategorized_count
 
         return stats
 
@@ -381,10 +376,7 @@ class ReportGenerator:
                 <div class="stat-number">{stats['positive_reviews']/(stats['total_reviews'])*100:.1f}%</div>
                 <div>好评率</div>
             </div>
-            <div class="stat-card">
-                <div class="stat-number">{stats['uncategorized']}</div>
-                <div>无法分类</div>
-            </div>
+
         </div>
     </div>
 """
