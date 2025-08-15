@@ -766,6 +766,16 @@ class ReportGenerator:
             gap: 5px;
         }}
         
+        .playtime-info {{
+            background: linear-gradient(135deg, #28a745, #20c997);
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            margin-left: 8px;
+        }}
+        
         .emoji {{
             font-size: 1rem;
         }}
@@ -986,6 +996,14 @@ class ReportGenerator:
                         ):
                             review_text = "（评论内容不可用）"
 
+                        # 获取游玩时间信息
+                        playtime_hours = review.get("author_playtime_hours", 0)
+                        playtime_display = (
+                            f"🎮 {playtime_hours:.1f}h"
+                            if playtime_hours > 0
+                            else "🎮 未记录"
+                        )
+
                         html += f"""
                         <div class="review-item">
                             <div class="review-number">#{i}</div>
@@ -994,6 +1012,7 @@ class ReportGenerator:
                                 <div class="vote-info">
                                     <span class="emoji">👍</span>
                                     <span>{review['votes_up']} 赞同</span>
+                                    <span class="playtime-info">{playtime_display}</span>
                         </div>
                                 <span>{review.get('created_date', '未知日期')}</span>
                     </div>
@@ -1050,6 +1069,14 @@ class ReportGenerator:
                         ):
                             review_text = "（评论内容不可用）"
 
+                        # 获取游玩时间信息
+                        playtime_hours = review.get("author_playtime_hours", 0)
+                        playtime_display = (
+                            f"🎮 {playtime_hours:.1f}h"
+                            if playtime_hours > 0
+                            else "🎮 未记录"
+                        )
+
                         html += f"""
                         <div class="review-item">
                             <div class="review-number">#{i}</div>
@@ -1058,6 +1085,7 @@ class ReportGenerator:
                                 <div class="vote-info">
                                     <span class="emoji">👎</span>
                                     <span>{review['votes_up']} 赞同</span>
+                                    <span class="playtime-info">{playtime_display}</span>
                         </div>
                                 <span>{review.get('created_date', '未知日期')}</span>
                     </div>
@@ -1111,6 +1139,12 @@ class ReportGenerator:
                     else "无分类"
                 )
 
+                # 获取游玩时间信息
+                playtime_hours = review.get("author_playtime_hours", 0)
+                playtime_display = (
+                    f"🎮 {playtime_hours:.1f}h" if playtime_hours > 0 else "🎮 未记录"
+                )
+
                 html += f"""
                         <div class="review-item">
                             <div class="review-number">#{i}</div>
@@ -1119,6 +1153,7 @@ class ReportGenerator:
                                 <div class="vote-info">
                                     <span class="emoji">👍</span>
                                     <span>{review['votes_up']} 赞同</span>
+                                    <span class="playtime-info">{playtime_display}</span>
                                 </div>
                                 <span>{review.get('created_date', '未知日期')}</span>
                                 <span class="category-tags" style="color: #666; font-size: 0.9em;">分类：{categories_str}</span>
@@ -1162,6 +1197,12 @@ class ReportGenerator:
                     else "无分类"
                 )
 
+                # 获取游玩时间信息
+                playtime_hours = review.get("author_playtime_hours", 0)
+                playtime_display = (
+                    f"🎮 {playtime_hours:.1f}h" if playtime_hours > 0 else "🎮 未记录"
+                )
+
                 html += f"""
                         <div class="review-item">
                             <div class="review-number">#{i}</div>
@@ -1170,6 +1211,7 @@ class ReportGenerator:
                                 <div class="vote-info">
                                     <span class="emoji">👎</span>
                                     <span>{review['votes_up']} 赞同</span>
+                                    <span class="playtime-info">{playtime_display}</span>
                                 </div>
                                 <span>{review.get('created_date', '未知日期')}</span>
                                 <span class="category-tags" style="color: #666; font-size: 0.9em;">分类：{categories_str}</span>
