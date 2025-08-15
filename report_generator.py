@@ -213,24 +213,38 @@ class ReportGenerator:
 
         for category_name in all_categories:
             category_reviews = []
+            seen_reviews = set()  # 用于去重的集合
 
             for idx, row in classified_df.iterrows():
                 if category_name in row["ai_categories"]:
-                    category_reviews.append(
-                        {
-                            "review_text": row.get("review_text", f"评论{idx}"),
-                            "votes_up": row.get("votes_up", 0),
-                            "voted_up": row.get("voted_up", True),
-                            "created_date": row.get("created_date", ""),
-                            "author_playtime_hours": row.get(
-                                "author_playtime_hours", 0
-                            ),
-                            "language": row.get("language", ""),
-                        }
-                    )
+                    review_text = row.get("review_text", f"评论{idx}")
+                    votes_up = row.get("votes_up", 0)
+                    created_date = row.get("created_date", "")
 
-            # 按点赞数排序，取前N条
-            category_reviews.sort(key=lambda x: x["votes_up"], reverse=True)
+                    # 使用评论文本+点赞数+创建时间作为复合键去重，确保唯一性
+                    review_key = (
+                        review_text[:200],
+                        votes_up,
+                        created_date,
+                    )  # 使用前200字符避免内存问题
+
+                    if review_key not in seen_reviews:
+                        seen_reviews.add(review_key)
+                        category_reviews.append(
+                            {
+                                "review_text": review_text,
+                                "votes_up": votes_up,
+                                "voted_up": row.get("voted_up", True),
+                                "created_date": created_date,
+                                "author_playtime_hours": row.get(
+                                    "author_playtime_hours", 0
+                                ),
+                                "language": row.get("language", ""),
+                            }
+                        )
+
+            # 按点赞数排序，如果点赞数相同则按评论文本排序确保稳定性
+            category_reviews.sort(key=lambda x: (-x["votes_up"], x["review_text"]))
             representative[category_name] = category_reviews[
                 : self.max_representative_reviews
             ]
