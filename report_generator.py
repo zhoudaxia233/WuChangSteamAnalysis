@@ -327,99 +327,466 @@ class ReportGenerator:
         output_path: str,
     ):
         """生成HTML报告"""
-        html = f"""
-<!DOCTYPE html>
+        html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>AI评论分析报告 - 明末渊虚之羽</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Steam评论分析报告 - 明末渊虚之羽</title>
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; margin: 40px; line-height: 1.6; }}
-        .header {{ text-align: center; margin-bottom: 40px; }}
-        .summary {{ background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px; }}
-        .category-section {{ margin-bottom: 40px; }}
-        .category-title {{ color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }}
-        .category-item {{ background: white; border-left: 4px solid #3498db; padding: 15px; margin: 10px 0; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }}
-        .positive {{ border-left-color: #27ae60; }}
-        .negative {{ border-left-color: #e74c3c; }}
-        .review-text {{ background: #f8f9fa; padding: 10px; border-radius: 4px; margin: 10px 0; font-style: italic; }}
-        .stats {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0; }}
-        .stat-card {{ background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); text-align: center; }}
-        .stat-number {{ font-size: 2em; font-weight: bold; color: #3498db; }}
-        .representative-review {{ margin: 15px 0; padding: 15px; background: #f8f9fa; border-radius: 6px; }}
-        .review-meta {{ color: #666; font-size: 0.9em; margin-top: 10px; }}
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }}
+        
+        .container {{
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }}
+        
+        .header {{
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(20px);
+            border-radius: 20px;
+            padding: 40px;
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }}
+        
+        .header h1 {{
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 15px;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        }}
+        
+        .header p {{
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-bottom: 8px;
+        }}
+        
+        .content-layout {{
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 25px;
+            margin-bottom: 30px;
+        }}
+        
+        .sidebar {{
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            height: fit-content;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 20px;
+        }}
+        
+        .sidebar h2 {{
+            color: #2c3e50;
+            margin-bottom: 25px;
+            font-size: 1.4rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        
+        .stats-grid {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 25px;
+        }}
+        
+        .stat-card {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 15px;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            transition: transform 0.3s ease;
+        }}
+        
+        .stat-card:hover {{
+            transform: translateY(-3px);
+        }}
+        
+        .stat-number {{
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }}
+        
+        .stat-label {{
+            font-size: 0.85rem;
+            opacity: 0.9;
+        }}
+        
+        .progress-section {{
+            margin-top: 25px;
+        }}
+        
+        .progress-label {{
+            color: #2c3e50;
+            font-weight: 600;
+            margin-bottom: 10px;
+            font-size: 1rem;
+        }}
+        
+        .progress-bar {{
+            background: #e9ecef;
+            border-radius: 10px;
+            height: 10px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }}
+        
+        .progress-fill {{
+            background: linear-gradient(90deg, #28a745 0%, #20c997 100%);
+            height: 100%;
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }}
+        
+        .progress-text {{
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: #6c757d;
+        }}
+        
+        .main-content {{
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }}
+        
+        .charts-section {{
+            margin-bottom: 40px;
+        }}
+        
+        .chart-container {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-top: 20px;
+        }}
+        
+        .chart-item {{
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            text-align: center;
+        }}
+        
+        .chart-item img {{
+            width: 100%;
+            border-radius: 10px;
+        }}
+        
+        .section-title {{
+            color: #2c3e50;
+            font-size: 1.8rem;
+            font-weight: 600;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid #667eea;
+        }}
+        
+        .categories-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 20px;
+        }}
+        
+        .category-card {{
+            background: white;
+            border-radius: 15px;
+            padding: 25px;
+            border-left: 5px solid;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }}
+        
+        .category-card:hover {{
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }}
+        
+        .category-card.positive {{
+            border-left-color: #28a745;
+            background: linear-gradient(135deg, #ffffff 0%, #f8fff8 100%);
+        }}
+        
+        .category-card.negative {{
+            border-left-color: #dc3545;
+            background: linear-gradient(135deg, #ffffff 0%, #fff8f8 100%);
+        }}
+        
+        .category-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid #e9ecef;
+        }}
+        
+        .category-name {{
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #2c3e50;
+        }}
+        
+        .category-stats {{
+            display: flex;
+            gap: 10px;
+        }}
+        
+        .stat-badge {{
+            background: #f8f9fa;
+            color: #495057;
+            padding: 4px 12px;
+            border-radius: 15px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }}
+        
+        .reviews-container {{
+            max-height: 350px;
+            overflow-y: auto;
+            padding-right: 10px;
+        }}
+        
+        .review-item {{
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 12px;
+            border-left: 3px solid #667eea;
+            transition: all 0.2s ease;
+        }}
+        
+        .review-item:hover {{
+            background: #e9ecef;
+            transform: translateX(3px);
+        }}
+        
+        .review-number {{
+            color: #6c757d;
+            font-size: 0.8rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }}
+        
+        .review-text {{
+            color: #495057;
+            line-height: 1.5;
+            margin-bottom: 10px;
+            font-style: italic;
+        }}
+        
+        .review-meta {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            color: #6c757d;
+        }}
+        
+        .vote-info {{
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }}
+        
+        .emoji {{
+            font-size: 1rem;
+        }}
+        
+        .footer {{
+            background: rgba(0,0,0,0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            color: rgba(255,255,255,0.9);
+            margin-top: 30px;
+        }}
+        
+        .footer p {{
+            margin-bottom: 8px;
+        }}
+        
+        /* 滚动条样式 */
+        .reviews-container::-webkit-scrollbar {{
+            width: 6px;
+        }}
+        
+        .reviews-container::-webkit-scrollbar-track {{
+            background: #f1f1f1;
+            border-radius: 3px;
+        }}
+        
+        .reviews-container::-webkit-scrollbar-thumb {{
+            background: #667eea;
+            border-radius: 3px;
+        }}
+        
+        /* 响应式设计 */
+        @media (max-width: 1200px) {{
+            .content-layout {{
+                grid-template-columns: 1fr;
+            }}
+            .sidebar {{
+                position: static;
+            }}
+            .chart-container {{
+                grid-template-columns: 1fr;
+            }}
+            .categories-grid {{
+                grid-template-columns: 1fr;
+            }}
+        }}
+        
+        @media (max-width: 768px) {{
+            .container {{
+                padding: 15px;
+            }}
+            .header h1 {{
+                font-size: 2rem;
+            }}
+            .stats-grid {{
+                grid-template-columns: 1fr;
+            }}
+        }}
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>《明末渊虚之羽》Steam评论AI分析报告</h1>
-        <p>基于DeepSeek AI深度语义分析</p>
-        <p>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-    </div>
-    
-    <div class="summary">
-        <h2>总体概况</h2>
-        <div class="stats">
-            <div class="stat-card">
-                <div class="stat-number">{stats['total_reviews']}</div>
-                <div>总分析数量</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">{stats['positive_reviews']}</div>
-                <div>好评数量</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">{stats['negative_reviews']}</div>
-                <div>差评数量</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-number">{stats['positive_reviews']/(stats['total_reviews'])*100:.1f}%</div>
-                <div>好评率</div>
-            </div>
+    <div class="container">
+        <header class="header">
+            <h1>🎮 《明末渊虚之羽》Steam评论分析报告</h1>
+            <p>基于DeepSeek AI深度语义分析</p>
+            <p>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+        </header>
+        
+        <div class="content-layout">
+            <aside class="sidebar">
+                <h2>📊 数据概览</h2>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-number">{stats['total_reviews']:,}</div>
+                        <div class="stat-label">总评论数</div>
+                    </div>
+                    
+                    <div class="stat-card" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
+                        <div class="stat-number">{stats['positive_reviews']:,}</div>
+                        <div class="stat-label">好评数量</div>
+                    </div>
+                    
+                    <div class="stat-card" style="background: linear-gradient(135deg, #dc3545 0%, #e83e8c 100%);">
+                        <div class="stat-number">{stats['negative_reviews']:,}</div>
+                        <div class="stat-label">差评数量</div>
+                    </div>
+                    
+                    <div class="stat-card" style="background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);">
+                        <div class="stat-number">{stats['positive_reviews']/(stats['total_reviews'])*100:.1f}%</div>
+                        <div class="stat-label">好评率</div>
+                    </div>
+                </div>
+                
+                <div class="progress-section">
+                    <div class="progress-label">评论情感分布</div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: {stats['positive_reviews']/(stats['total_reviews'])*100:.1f}%;"></div>
+                    </div>
+                    <div class="progress-text">
+                        <span>👍 好评 {stats['positive_reviews']/(stats['total_reviews'])*100:.1f}%</span>
+                        <span>👎 差评 {stats['negative_reviews']/(stats['total_reviews'])*100:.1f}%</span>
+                    </div>
+                </div>
+            </aside>
+            
+            <main class="main-content">
+                <section class="charts-section">
+                    <h2 class="section-title">
+                        <span class="emoji">📈</span>
+                        可视化分析
+                    </h2>
+                    
+                    <div class="chart-container">"""
 
-        </div>
-    </div>
-"""
-
-        # 嵌入图表
+        # 添加图表
         if charts:
-            html += """
-    <div class="category-section">
-        <h2>可视化分析</h2>
-"""
             if "positive_categories" in charts:
                 html += f"""
-        <div style="text-align: center; margin: 20px 0;">
-            <img src="data:image/png;base64,{charts['positive_categories']}" 
-                 alt="好评类别分布" style="max-width: 100%; height: auto;">
-        </div>
-"""
+                        <div class="chart-item">
+                            <h3 style="margin-bottom: 15px; color: #28a745;">好评类别分布</h3>
+                            <img src="data:image/png;base64,{charts['positive_categories']}" alt="好评类别分布">
+                        </div>"""
+
             if "negative_categories" in charts:
                 html += f"""
-        <div style="text-align: center; margin: 20px 0;">
-            <img src="data:image/png;base64,{charts['negative_categories']}" 
-                 alt="差评类别分布" style="max-width: 100%; height: auto;">
+                        <div class="chart-item">
+                            <h3 style="margin-bottom: 15px; color: #dc3545;">差评类别分布</h3>
+                            <img src="data:image/png;base64,{charts['negative_categories']}" alt="差评类别分布">
+                        </div>"""
+
+        html += """
+                    </div>
+                </section>
+            </main>
         </div>
-"""
-            html += "</div>"
+        
+        <div class="categories-section" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); margin-bottom: 20px;">
+            <h2 class="section-title">
+                <span class="emoji">👍</span>
+                好评类别分析
+            </h2>
+            
+            <div class="categories-grid">"""
 
         # 好评类别
         if stats["positive_categories"]:
-            html += """
-    <div class="category-section">
-        <h2 class="category-title positive">好评类别分析</h2>
-        <p><em>AI深度语义分析，准确理解评论意图</em></p>
-"""
             for cat_name, cat_data in stats["positive_categories"].items():
                 display_name = f"{cat_name}（好评）" if cat_name == "其他" else cat_name
                 html += f"""
-        <div class="category-item positive">
-            <h3>{display_name}</h3>
-            <p><strong>{cat_data['count']}</strong> 条评论 ({cat_data['percentage']:.1f}%)</p>
-"""
+                <div class="category-card positive">
+                    <div class="category-header">
+                        <h3 class="category-name">{display_name}</h3>
+                        <div class="category-stats">
+                            <span class="stat-badge">{cat_data['count']} 条</span>
+                            <span class="stat-badge">{cat_data['percentage']:.1f}%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="reviews-container">"""
+
                 if cat_name in representative and representative[cat_name]:
-                    html += f"<h4>代表性评论（前{len(representative[cat_name])}条，按点赞数排序）:</h4>"
-                    for i, review in enumerate(representative[cat_name], 1):
+                    for i, review in enumerate(representative[cat_name][:3], 1):
                         review_text = review["review_text"]
                         # 确保评论内容不是占位符
                         if (
@@ -430,36 +797,52 @@ class ReportGenerator:
                             review_text = "（评论内容不可用）"
 
                         html += f"""
-                    <div class="representative-review">
-                        <div style="color: #666; font-size: 0.9em; margin-bottom: 5px;">#{i}</div>
-                        <div class="review-text">"{review_text[:300]}{'...' if len(review_text) > 300 else ''}"</div>
-                        <div class="review-meta">
-                            👍 {review['votes_up']} 点赞 | 
-                            ⏱️ 游戏时长: {review.get('author_playtime_hours', 0):.1f}小时 |
-                            📅 {review.get('created_date', '未知日期')}
-                        </div>
+                        <div class="review-item">
+                            <div class="review-number">#{i}</div>
+                            <div class="review-text">"{review_text[:150]}{'...' if len(review_text) > 150 else ''}"</div>
+                            <div class="review-meta">
+                                <div class="vote-info">
+                                    <span class="emoji">👍</span>
+                                    <span>{review['votes_up']} 赞同</span>
+                                </div>
+                                <span>{review.get('created_date', '未知日期')}</span>
+                            </div>
+                        </div>"""
+
+                html += """
                     </div>
-"""
-                html += "</div>"
-            html += "</div>"
+                </div>"""
+
+        html += """
+            </div>
+        </div>
+        
+        <div class="categories-section" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); margin-bottom: 20px;">
+            <h2 class="section-title">
+                <span class="emoji">👎</span>
+                差评类别分析
+            </h2>
+            
+            <div class="categories-grid">"""
 
         # 差评类别
         if stats["negative_categories"]:
-            html += """
-    <div class="category-section">
-        <h2 class="category-title negative">差评类别分析</h2>
-        <p><em>AI深度语义分析，准确理解评论意图</em></p>
-"""
             for cat_name, cat_data in stats["negative_categories"].items():
                 display_name = f"{cat_name}（差评）" if cat_name == "其他" else cat_name
                 html += f"""
-        <div class="category-item negative">
-            <h3>{display_name}</h3>
-            <p><strong>{cat_data['count']}</strong> 条评论 ({cat_data['percentage']:.1f}%)</p>
-"""
+                <div class="category-card negative">
+                    <div class="category-header">
+                        <h3 class="category-name">{display_name}</h3>
+                        <div class="category-stats">
+                            <span class="stat-badge">{cat_data['count']} 条</span>
+                            <span class="stat-badge">{cat_data['percentage']:.1f}%</span>
+                        </div>
+                    </div>
+                    
+                    <div class="reviews-container">"""
+
                 if cat_name in representative and representative[cat_name]:
-                    html += f"<h4>代表性评论（前{len(representative[cat_name])}条，按点赞数排序）:</h4>"
-                    for i, review in enumerate(representative[cat_name], 1):
+                    for i, review in enumerate(representative[cat_name][:3], 1):
                         review_text = review["review_text"]
                         # 确保评论内容不是占位符
                         if (
@@ -470,61 +853,39 @@ class ReportGenerator:
                             review_text = "（评论内容不可用）"
 
                         html += f"""
-                    <div class="representative-review">
-                        <div style="color: #666; font-size: 0.9em; margin-bottom: 5px;">#{i}</div>
-                        <div class="review-text">"{review_text[:300]}{'...' if len(review_text) > 300 else ''}"</div>
-                        <div class="review-meta">
-                            👍 {review['votes_up']} 点赞 | 
-                            ⏱️ 游戏时长: {review.get('author_playtime_hours', 0):.1f}小时 |
-                            📅 {review.get('created_date', '未知日期')}
-                        </div>
+                        <div class="review-item">
+                            <div class="review-number">#{i}</div>
+                            <div class="review-text">"{review_text[:150]}{'...' if len(review_text) > 150 else ''}"</div>
+                            <div class="review-meta">
+                                <div class="vote-info">
+                                    <span class="emoji">👎</span>
+                                    <span>{review['votes_up']} 赞同</span>
+                                </div>
+                                <span>{review.get('created_date', '未知日期')}</span>
+                            </div>
+                        </div>"""
+
+                html += """
                     </div>
-"""
-                html += "</div>"
-            html += "</div>"
+                </div>"""
 
-        # 多类别统计
-        if stats["multi_category_stats"]:
-            html += """
-    <div class="category-section">
-        <h2>多类别评论统计</h2>
-        <p>AI识别出的包含多个问题/优点的复合评论:</p>
-"""
-            for cat_count, review_count in sorted(
-                stats["multi_category_stats"].items()
-            ):
-                html += (
-                    f"<p><strong>{cat_count}个类别</strong>: {review_count} 条评论</p>"
-                )
-
-        html += f"""
-    </div>
-    
-    <div class="category-section">
-        <h2>分析说明</h2>
-        <div style="background: #f0f8ff; padding: 15px; border-radius: 6px; margin: 15px 0;">
-            <p><strong>🤖 AI分析优势:</strong></p>
-            <ul>
-                <li><strong>语义理解</strong>: 能理解上下文和隐含意思，不仅仅是关键词匹配</li>
-                <li><strong>反讽识别</strong>: 识别阴阳怪气和反话，准确判断真实情感</li>
-                <li><strong>多标签分类</strong>: 一条评论可以同时归属多个类别</li>
-                <li><strong>情感分析</strong>: 准确区分好评差评中的"其他"类别</li>
-            </ul>
+        html += (
+            """
+            </div>
         </div>
         
-        <div style="background: #fff3cd; padding: 15px; border-radius: 6px; margin: 15px 0;">
-            <p><strong>📊 统计说明:</strong></p>
-            <ul>
-                <li>每个类别的百分比是相对于该情感倾向（好评/差评）总数计算</li>
-                <li>由于支持多标签分类，所有类别百分比相加可能超过100%</li>
-                <li>代表性评论按点赞数排序，显示前{self.max_representative_reviews}条</li>
-                <li>评论内容截取前300字符以保持页面整洁</li>
-            </ul>
-        </div>
+        <footer class="footer">
+            <p>📊 报告生成时间: """
+            + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            + """</p>
+            <p>🤖 由AI智能分析系统生成 | 基于DeepSeek模型</p>
+            <p>💡 想要更详细的分析结果？可查看生成的CSV文件获取完整数据</p>
+        </footer>
     </div>
 </body>
 </html>
 """
+        )
 
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(html)
