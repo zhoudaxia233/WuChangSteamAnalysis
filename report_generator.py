@@ -201,58 +201,74 @@ class ReportGenerator:
         """获取每个类别的代表性评论"""
         representative = {}
 
-        # 收集所有类别
-        all_categories = set()
-        for categories in classified_df["ai_categories"]:
-            all_categories.update(categories)
+        # 分别处理好评和差评类别
+        for sentiment, categories in self.categories.items():
+            is_positive = sentiment == "positive"
+            # 筛选对应情感倾向的评论
+            sentiment_df = classified_df[classified_df["voted_up"] == is_positive]
 
-        for category_name in all_categories:
-            category_reviews = []
-            seen_reviews = set()  # 用于去重的集合
+            for category_name in categories.keys():
+                category_reviews = []
+                seen_reviews = set()  # 用于去重的集合
 
-            for idx, row in classified_df.iterrows():
-                if category_name in row["ai_categories"]:
-                    review_text = row.get("review_text", f"评论{idx}")
-                    votes_up = row.get("votes_up", 0)
-                    created_date = row.get("created_date", "")
+                for idx, row in sentiment_df.iterrows():
+                    if category_name in row["ai_categories"]:
+                        review_text = row.get("review_text", f"评论{idx}")
+                        votes_up = row.get("votes_up", 0)
+                        created_date = row.get("created_date", "")
 
-                    # 使用评论文本+点赞数+创建时间作为复合键去重，确保唯一性
-                    review_key = (
-                        review_text[:200],
-                        votes_up,
-                        created_date,
-                    )  # 使用前200字符避免内存问题
+                        # 使用评论文本的起始片段作为去重键，对于高度相似的评论
+                        # 只取前100个字符进行比较，这样能捕获大部分重复但有细微差别的评论
+                        import re
 
-                    if review_key not in seen_reviews:
-                        seen_reviews.add(review_key)
-                        category_reviews.append(
-                            {
-                                "review_text": review_text,
-                                "votes_up": votes_up,
-                                "voted_up": row.get("voted_up", True),
-                                "created_date": created_date,
-                                "author_playtime_hours": row.get(
-                                    "author_playtime_hours", 0
-                                ),
-                                "language": row.get("language", ""),
-                            }
-                        )
+                        # 去除所有标点符号和空白字符，只保留中文字符，并截取前100字符
+                        cleaned_text = re.sub(r"[^\u4e00-\u9fff\w]", "", review_text)[
+                            :100
+                        ]
+                        review_key = cleaned_text
 
-            # 按点赞数排序，如果点赞数相同则按评论文本排序确保稳定性
-            category_reviews.sort(key=lambda x: (-x["votes_up"], x["review_text"]))
-            representative[category_name] = category_reviews[
-                : self.max_representative_reviews
-            ]
+                        if review_key not in seen_reviews:
+                            seen_reviews.add(review_key)
+                            category_reviews.append(
+                                {
+                                    "review_text": review_text,
+                                    "votes_up": votes_up,
+                                    "voted_up": row.get("voted_up", True),
+                                    "created_date": created_date,
+                                    "author_playtime_hours": row.get(
+                                        "author_playtime_hours", 0
+                                    ),
+                                    "language": row.get("language", ""),
+                                }
+                            )
+
+                # 按点赞数排序，如果点赞数相同则按评论文本排序确保稳定性
+                category_reviews.sort(key=lambda x: (-x["votes_up"], x["review_text"]))
+
+                # 为不同情感倾向的相同类别名称创建不同的键，避免覆盖
+                sentiment_suffix = "（好评）" if is_positive else "（差评）"
+                unique_key = (
+                    f"{category_name}{sentiment_suffix}"
+                    if category_name == "其他"
+                    else category_name
+                )
+
+                representative[unique_key] = category_reviews[
+                    : self.max_representative_reviews
+                ]
 
         return representative
 
     def create_visualizations(self, stats: Dict) -> Dict[str, str]:
         """创建可视化图表并返回base64编码"""
+        # 设置全局字体大小
+        plt.rcParams.update({"font.size": 16})
+
         charts = {}
 
         # 1. 好评类别分布
         if stats["positive_categories"]:
-            plt.figure(figsize=(12, 8))
+            plt.figure(figsize=(18, 10))  # 增大图表尺寸
             labels = list(stats["positive_categories"].keys())
             counts = [cat["count"] for cat in stats["positive_categories"].values()]
 
@@ -266,18 +282,25 @@ class ReportGenerator:
                     f"{count}",
                     ha="center",
                     va="bottom",
-                    fontsize=11,
+                    fontsize=15,  # 增大数值标签字体
+                    fontweight="bold",
                 )
 
-            plt.title("好评类别分布 (AI分析)", fontsize=16, fontweight="bold")
-            plt.xlabel("类别", fontsize=12)
-            plt.ylabel("评论数量", fontsize=12)
-            plt.xticks(range(len(labels)), labels, rotation=45, ha="right")
+            plt.title(
+                "好评类别分布", fontsize=22, fontweight="bold", pad=20
+            )  # 增大标题并去掉"AI分析"
+            plt.xlabel("类别", fontsize=18)  # 增大轴标签字体
+            plt.ylabel("评论数量", fontsize=18)
+            plt.xticks(
+                range(len(labels)), labels, rotation=45, ha="right", fontsize=16
+            )  # 增大刻度字体
+            plt.yticks(fontsize=16)
+            plt.grid(axis="y", alpha=0.3, linewidth=0.8)  # 添加网格线
             plt.tight_layout()
 
             # 转换为base64
             buffer = io.BytesIO()
-            plt.savefig(buffer, format="png", dpi=150, bbox_inches="tight")
+            plt.savefig(buffer, format="png", dpi=200, bbox_inches="tight")  # 增加DPI
             buffer.seek(0)
             charts["positive_categories"] = base64.b64encode(buffer.getvalue()).decode()
             buffer.close()
@@ -285,7 +308,7 @@ class ReportGenerator:
 
         # 2. 差评类别分布
         if stats["negative_categories"]:
-            plt.figure(figsize=(12, 8))
+            plt.figure(figsize=(18, 10))  # 增大图表尺寸
             labels = list(stats["negative_categories"].keys())
             counts = [cat["count"] for cat in stats["negative_categories"].values()]
 
@@ -299,18 +322,25 @@ class ReportGenerator:
                     f"{count}",
                     ha="center",
                     va="bottom",
-                    fontsize=11,
+                    fontsize=15,  # 增大数值标签字体
+                    fontweight="bold",
                 )
 
-            plt.title("差评类别分布 (AI分析)", fontsize=16, fontweight="bold")
-            plt.xlabel("类别", fontsize=12)
-            plt.ylabel("评论数量", fontsize=12)
-            plt.xticks(range(len(labels)), labels, rotation=45, ha="right")
+            plt.title(
+                "差评类别分布", fontsize=22, fontweight="bold", pad=20
+            )  # 增大标题并去掉"AI分析"
+            plt.xlabel("类别", fontsize=18)  # 增大轴标签字体
+            plt.ylabel("评论数量", fontsize=18)
+            plt.xticks(
+                range(len(labels)), labels, rotation=45, ha="right", fontsize=16
+            )  # 增大刻度字体
+            plt.yticks(fontsize=16)
+            plt.grid(axis="y", alpha=0.3, linewidth=0.8)  # 添加网格线
             plt.tight_layout()
 
             # 转换为base64
             buffer = io.BytesIO()
-            plt.savefig(buffer, format="png", dpi=150, bbox_inches="tight")
+            plt.savefig(buffer, format="png", dpi=200, bbox_inches="tight")  # 增加DPI
             buffer.seek(0)
             charts["negative_categories"] = base64.b64encode(buffer.getvalue()).decode()
             buffer.close()
@@ -327,7 +357,8 @@ class ReportGenerator:
         output_path: str,
     ):
         """生成HTML报告"""
-        html = f"""<!DOCTYPE html>
+        html = (
+            f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
@@ -484,18 +515,19 @@ class ReportGenerator:
         }}
         
         .chart-container {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
             margin-top: 20px;
         }}
         
         .chart-item {{
             background: white;
             border-radius: 15px;
-            padding: 20px;
+            padding: 30px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.05);
             text-align: center;
+            width: 100%;
         }}
         
         .chart-item img {{
@@ -688,8 +720,9 @@ class ReportGenerator:
     <div class="container">
         <header class="header">
             <h1>🎮 《明末渊虚之羽》Steam评论分析报告</h1>
-            <p>基于DeepSeek AI深度语义分析</p>
-            <p>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            <p>基于DeepSeek深度语义分析</p>
+            <p>📊 数据来源：全部中文评论（简体+繁体），截止2024年8月10日</p>
+        <p>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
         </header>
         
         <div class="content-layout">
@@ -697,66 +730,103 @@ class ReportGenerator:
                 <h2>📊 数据概览</h2>
                 
                 <div class="stats-grid">
-                    <div class="stat-card">
+            <div class="stat-card">
                         <div class="stat-number">{stats['total_reviews']:,}</div>
                         <div class="stat-label">总评论数</div>
-                    </div>
+            </div>
                     
                     <div class="stat-card" style="background: linear-gradient(135deg, #28a745 0%, #20c997 100%);">
                         <div class="stat-number">{stats['positive_reviews']:,}</div>
                         <div class="stat-label">好评数量</div>
-                    </div>
-                    
+            </div>
+    
                     <div class="stat-card" style="background: linear-gradient(135deg, #dc3545 0%, #e83e8c 100%);">
                         <div class="stat-number">{stats['negative_reviews']:,}</div>
                         <div class="stat-label">差评数量</div>
-                    </div>
+            </div>
                     
                     <div class="stat-card" style="background: linear-gradient(135deg, #ffc107 0%, #fd7e14 100%);">
-                        <div class="stat-number">{stats['positive_reviews']/(stats['total_reviews'])*100:.1f}%</div>
+                <div class="stat-number">{stats['positive_reviews']/(stats['total_reviews'])*100:.1f}%</div>
                         <div class="stat-label">好评率</div>
-                    </div>
-                </div>
+            </div>
+            </div>
                 
                 <div class="progress-section">
                     <div class="progress-label">评论情感分布</div>
                     <div class="progress-bar">
                         <div class="progress-fill" style="width: {stats['positive_reviews']/(stats['total_reviews'])*100:.1f}%;"></div>
-                    </div>
+        </div>
                     <div class="progress-text">
                         <span>👍 好评 {stats['positive_reviews']/(stats['total_reviews'])*100:.1f}%</span>
                         <span>👎 差评 {stats['negative_reviews']/(stats['total_reviews'])*100:.1f}%</span>
+    </div>
+        </div>
+                
+                <div style="background: #e8f5e8; border-radius: 10px; padding: 15px; margin-top: 20px; border-left: 4px solid #28a745;">
+                    <h4 style="color: #2c3e50; margin-bottom: 12px; font-size: 1rem;">👍 好评类别定义</h4>
+                    <div style="color: #495057; line-height: 1.4; font-size: 0.85rem;">"""
+            + "".join(
+                [
+                    f'<div style="margin-bottom: 8px;"><strong>{cat_name}：</strong>{cat_desc}</div>'
+                    for cat_name, cat_desc in self.categories["positive"].items()
+                ]
+            )
+            + """
+                    </div>
+                </div>
+                
+                <div style="background: #fce8e8; border-radius: 10px; padding: 15px; margin-top: 15px; border-left: 4px solid #dc3545;">
+                    <h4 style="color: #2c3e50; margin-bottom: 12px; font-size: 1rem;">👎 差评类别定义</h4>
+                    <div style="color: #495057; line-height: 1.4; font-size: 0.85rem;">"""
+            + "".join(
+                [
+                    f'<div style="margin-bottom: 8px;"><strong>{cat_name}：</strong>{cat_desc}</div>'
+                    for cat_name, cat_desc in self.categories["negative"].items()
+                ]
+            )
+            + """
                     </div>
                 </div>
             </aside>
             
             <main class="main-content">
-                <section class="charts-section">
+                                <section class="charts-section">
                     <h2 class="section-title">
                         <span class="emoji">📈</span>
-                        可视化分析
+                        类别分布可视化
                     </h2>
                     
                     <div class="chart-container">"""
+        )
 
         # 添加图表
         if charts:
             if "positive_categories" in charts:
                 html += f"""
                         <div class="chart-item">
-                            <h3 style="margin-bottom: 15px; color: #28a745;">好评类别分布</h3>
-                            <img src="data:image/png;base64,{charts['positive_categories']}" alt="好评类别分布">
+                            <img src="data:image/png;base64,{charts['positive_categories']}" alt="好评类别分布" style="width: 100%; height: auto;">
                         </div>"""
 
             if "negative_categories" in charts:
                 html += f"""
                         <div class="chart-item">
-                            <h3 style="margin-bottom: 15px; color: #dc3545;">差评类别分布</h3>
-                            <img src="data:image/png;base64,{charts['negative_categories']}" alt="差评类别分布">
+                            <img src="data:image/png;base64,{charts['negative_categories']}" alt="差评类别分布" style="width: 100%; height: auto;">
                         </div>"""
 
         html += """
+        </div>
+                    
+                    <div style="background: #f8f9fa; border-radius: 10px; padding: 20px; margin-top: 20px; border-left: 4px solid #667eea;">
+                        <h4 style="color: #2c3e50; margin-bottom: 15px;">📋 统计说明</h4>
+                        <ul style="color: #495057; line-height: 1.6; margin: 0;">
+                            <li><strong>多标签分类：</strong>一条评论可能包含多个类别（如既谈论画面又谈论剧情）</li>
+                            <li><strong>分类规则：</strong>短评（≤50字）只能分配单一类别，长评可以分配多个类别</li>
+                            <li><strong>百分比计算：</strong>由于存在某个评论属于多个类别的情况，各类别百分比相加会超过100%，所以没有使用饼状图</li>
+                            <li><strong>智能识别：</strong>基于语义理解，能识别反讽、暗示等复杂表达</li>
+                        </ul>
                     </div>
+                    
+                                        
                 </section>
             </main>
         </div>
@@ -785,8 +855,16 @@ class ReportGenerator:
                     
                     <div class="reviews-container">"""
 
-                if cat_name in representative and representative[cat_name]:
-                    for i, review in enumerate(representative[cat_name][:3], 1):
+                # 为"其他"类别查找正确的键名
+                if cat_name == "其他":
+                    lookup_key = f"{cat_name}（好评）"
+                else:
+                    lookup_key = cat_name
+
+                if lookup_key in representative and representative[lookup_key]:
+                    for i, review in enumerate(
+                        representative[lookup_key][: self.max_representative_reviews], 1
+                    ):
                         review_text = review["review_text"]
                         # 确保评论内容不是占位符
                         if (
@@ -800,13 +878,13 @@ class ReportGenerator:
                         <div class="review-item">
                             <div class="review-number">#{i}</div>
                             <div class="review-text">"{review_text[:150]}{'...' if len(review_text) > 150 else ''}"</div>
-                            <div class="review-meta">
+                        <div class="review-meta">
                                 <div class="vote-info">
                                     <span class="emoji">👍</span>
                                     <span>{review['votes_up']} 赞同</span>
-                                </div>
+                        </div>
                                 <span>{review.get('created_date', '未知日期')}</span>
-                            </div>
+                    </div>
                         </div>"""
 
                 html += """
@@ -841,8 +919,16 @@ class ReportGenerator:
                     
                     <div class="reviews-container">"""
 
-                if cat_name in representative and representative[cat_name]:
-                    for i, review in enumerate(representative[cat_name][:3], 1):
+                # 为"其他"类别查找正确的键名
+                if cat_name == "其他":
+                    lookup_key = f"{cat_name}（差评）"
+                else:
+                    lookup_key = cat_name
+
+                if lookup_key in representative and representative[lookup_key]:
+                    for i, review in enumerate(
+                        representative[lookup_key][: self.max_representative_reviews], 1
+                    ):
                         review_text = review["review_text"]
                         # 确保评论内容不是占位符
                         if (
@@ -856,22 +942,22 @@ class ReportGenerator:
                         <div class="review-item">
                             <div class="review-number">#{i}</div>
                             <div class="review-text">"{review_text[:150]}{'...' if len(review_text) > 150 else ''}"</div>
-                            <div class="review-meta">
+                        <div class="review-meta">
                                 <div class="vote-info">
                                     <span class="emoji">👎</span>
                                     <span>{review['votes_up']} 赞同</span>
-                                </div>
+                        </div>
                                 <span>{review.get('created_date', '未知日期')}</span>
-                            </div>
+                    </div>
                         </div>"""
 
                 html += """
-                    </div>
+    </div>
                 </div>"""
 
         html += (
             """
-            </div>
+    </div>
         </div>
         
         <footer class="footer">
