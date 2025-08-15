@@ -211,11 +211,16 @@ class ReportGenerator:
                 category_reviews = []
                 seen_reviews = set()  # 用于去重的集合
 
+                # 分两轮收集：第一轮只收集单一类别的评论，第二轮补充多类别评论
+                single_category_reviews = []
+                multi_category_reviews = []
+
                 for idx, row in sentiment_df.iterrows():
                     if category_name in row["ai_categories"]:
                         review_text = row.get("review_text", f"评论{idx}")
                         votes_up = row.get("votes_up", 0)
                         created_date = row.get("created_date", "")
+                        ai_categories = row["ai_categories"]
 
                         # 使用评论文本的起始片段作为去重键，对于高度相似的评论
                         # 只取前100个字符进行比较，这样能捕获大部分重复但有细微差别的评论
@@ -229,21 +234,41 @@ class ReportGenerator:
 
                         if review_key not in seen_reviews:
                             seen_reviews.add(review_key)
-                            category_reviews.append(
-                                {
-                                    "review_text": review_text,
-                                    "votes_up": votes_up,
-                                    "voted_up": row.get("voted_up", True),
-                                    "created_date": created_date,
-                                    "author_playtime_hours": row.get(
-                                        "author_playtime_hours", 0
-                                    ),
-                                    "language": row.get("language", ""),
-                                }
-                            )
+                            review_data = {
+                                "review_text": review_text,
+                                "votes_up": votes_up,
+                                "voted_up": row.get("voted_up", True),
+                                "created_date": created_date,
+                                "author_playtime_hours": row.get(
+                                    "author_playtime_hours", 0
+                                ),
+                                "language": row.get("language", ""),
+                                "category_count": len(ai_categories),
+                            }
 
-                # 按点赞数排序，如果点赞数相同则按评论文本排序确保稳定性
-                category_reviews.sort(key=lambda x: (-x["votes_up"], x["review_text"]))
+                            # 根据类别数量分类
+                            if len(ai_categories) == 1:
+                                single_category_reviews.append(review_data)
+                            else:
+                                multi_category_reviews.append(review_data)
+
+                # 优先选择单一类别评论，按点赞数排序
+                single_category_reviews.sort(
+                    key=lambda x: (-x["votes_up"], x["review_text"])
+                )
+                multi_category_reviews.sort(
+                    key=lambda x: (-x["votes_up"], x["review_text"])
+                )
+
+                # 先添加单一类别评论，如果不够再添加多类别评论
+                category_reviews = single_category_reviews[
+                    : self.max_representative_reviews
+                ]
+                if len(category_reviews) < self.max_representative_reviews:
+                    remaining_slots = self.max_representative_reviews - len(
+                        category_reviews
+                    )
+                    category_reviews.extend(multi_category_reviews[:remaining_slots])
 
                 # 为不同情感倾向的相同类别名称创建不同的键，避免覆盖
                 sentiment_suffix = "（好评）" if is_positive else "（差评）"
@@ -257,7 +282,94 @@ class ReportGenerator:
                     : self.max_representative_reviews
                 ]
 
+        # 添加全局高赞好评和差评
+        self._add_global_top_reviews(classified_df, representative)
+
         return representative
+
+    def _add_global_top_reviews(
+        self, classified_df: pd.DataFrame, representative: Dict
+    ):
+        """添加全局高赞好评和差评"""
+        import re
+
+        # 全局高赞好评
+        positive_df = classified_df[classified_df["voted_up"] == True]
+        if not positive_df.empty:
+            positive_reviews = []
+            seen_positive = set()
+
+            # 按点赞数排序
+            positive_df_sorted = positive_df.sort_values("votes_up", ascending=False)
+
+            for idx, row in positive_df_sorted.iterrows():
+                review_text = row.get("review_text", f"评论{idx}")
+                votes_up = row.get("votes_up", 0)
+                created_date = row.get("created_date", "")
+
+                # 去重逻辑
+                cleaned_text = re.sub(r"[^\u4e00-\u9fff\w]", "", review_text)[:100]
+                review_key = cleaned_text
+
+                if review_key not in seen_positive:
+                    seen_positive.add(review_key)
+                    positive_reviews.append(
+                        {
+                            "review_text": review_text,
+                            "votes_up": votes_up,
+                            "voted_up": True,
+                            "created_date": created_date,
+                            "author_playtime_hours": row.get(
+                                "author_playtime_hours", 0
+                            ),
+                            "language": row.get("language", ""),
+                            "ai_categories": row["ai_categories"],
+                        }
+                    )
+
+                    if len(positive_reviews) >= self.max_representative_reviews:
+                        break
+
+            representative["全局高赞好评"] = positive_reviews
+
+        # 全局高赞差评
+        negative_df = classified_df[classified_df["voted_up"] == False]
+        if not negative_df.empty:
+            negative_reviews = []
+            seen_negative = set()
+
+            # 按点赞数排序
+            negative_df_sorted = negative_df.sort_values("votes_up", ascending=False)
+
+            for idx, row in negative_df_sorted.iterrows():
+                review_text = row.get("review_text", f"评论{idx}")
+                votes_up = row.get("votes_up", 0)
+                created_date = row.get("created_date", "")
+
+                # 去重逻辑
+                cleaned_text = re.sub(r"[^\u4e00-\u9fff\w]", "", review_text)[:100]
+                review_key = cleaned_text
+
+                if review_key not in seen_negative:
+                    seen_negative.add(review_key)
+                    negative_reviews.append(
+                        {
+                            "review_text": review_text,
+                            "votes_up": votes_up,
+                            "voted_up": False,
+                            "created_date": created_date,
+                            "author_playtime_hours": row.get(
+                                "author_playtime_hours", 0
+                            ),
+                            "language": row.get("language", ""),
+                            "ai_categories": row["ai_categories"],
+                        }
+                    )
+
+                    if len(negative_reviews) >= self.max_representative_reviews:
+                        break
+
+            representative["全局高赞差评"] = negative_reviews
 
     def create_visualizations(self, stats: Dict) -> Dict[str, str]:
         """创建可视化图表并返回base64编码"""
@@ -955,10 +1067,125 @@ class ReportGenerator:
     </div>
                 </div>"""
 
+        # 添加全局高赞部分
+        html += """
+        
+        <div class="categories-section" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); border-radius: 20px; padding: 30px; box-shadow: 0 8px 32px rgba(0,0,0,0.1); margin-bottom: 20px;">
+            <h2 class="section-title">
+                <span class="emoji">🏆</span>
+                全局高赞评论
+            </h2>
+            
+            <div class="categories-grid">"""
+
+        # 全局高赞好评
+        if "全局高赞好评" in representative and representative["全局高赞好评"]:
+            html += (
+                """
+                <div class="category-card positive">
+                    <div class="category-header">
+                        <h3 class="category-name">高赞好评 TOP"""
+                + str(self.max_representative_reviews)
+                + """</h3>
+                        <div class="category-stats">
+                            <span class="stat-badge">"""
+                + str(len(representative["全局高赞好评"]))
+                + """ 条</span>
+                        </div>
+                    </div>
+                    
+                    <div class="reviews-container">"""
+            )
+
+            for i, review in enumerate(representative["全局高赞好评"], 1):
+                review_text = review["review_text"]
+                if not review_text or (
+                    review_text.startswith("评论") and "不可用" in review_text
+                ):
+                    review_text = "（评论内容不可用）"
+
+                # 显示评论所属的类别
+                categories_str = (
+                    "、".join(review["ai_categories"])
+                    if review["ai_categories"]
+                    else "无分类"
+                )
+
+                html += f"""
+                        <div class="review-item">
+                            <div class="review-number">#{i}</div>
+                            <div class="review-text">"{review_text[:150]}{'...' if len(review_text) > 150 else ''}"</div>
+                            <div class="review-meta">
+                                <div class="vote-info">
+                                    <span class="emoji">👍</span>
+                                    <span>{review['votes_up']} 赞同</span>
+                                </div>
+                                <span>{review.get('created_date', '未知日期')}</span>
+                                <span class="category-tags" style="color: #666; font-size: 0.9em;">分类：{categories_str}</span>
+                            </div>
+                        </div>"""
+
+            html += """
+                    </div>
+                </div>"""
+
+        # 全局高赞差评
+        if "全局高赞差评" in representative and representative["全局高赞差评"]:
+            html += (
+                """
+                <div class="category-card negative">
+                    <div class="category-header">
+                        <h3 class="category-name">高赞差评 TOP"""
+                + str(self.max_representative_reviews)
+                + """</h3>
+                        <div class="category-stats">
+                            <span class="stat-badge">"""
+                + str(len(representative["全局高赞差评"]))
+                + """ 条</span>
+                        </div>
+                    </div>
+                    
+                    <div class="reviews-container">"""
+            )
+
+            for i, review in enumerate(representative["全局高赞差评"], 1):
+                review_text = review["review_text"]
+                if not review_text or (
+                    review_text.startswith("评论") and "不可用" in review_text
+                ):
+                    review_text = "（评论内容不可用）"
+
+                # 显示评论所属的类别
+                categories_str = (
+                    "、".join(review["ai_categories"])
+                    if review["ai_categories"]
+                    else "无分类"
+                )
+
+                html += f"""
+                        <div class="review-item">
+                            <div class="review-number">#{i}</div>
+                            <div class="review-text">"{review_text[:150]}{'...' if len(review_text) > 150 else ''}"</div>
+                            <div class="review-meta">
+                                <div class="vote-info">
+                                    <span class="emoji">👎</span>
+                                    <span>{review['votes_up']} 赞同</span>
+                                </div>
+                                <span>{review.get('created_date', '未知日期')}</span>
+                                <span class="category-tags" style="color: #666; font-size: 0.9em;">分类：{categories_str}</span>
+                            </div>
+                        </div>"""
+
+            html += """
+                    </div>
+                </div>"""
+
+        html += """
+            </div>
+        </div>"""
+
         html += (
             """
-    </div>
-        </div>
         
         <footer class="footer">
             <p>📊 报告生成时间: """
