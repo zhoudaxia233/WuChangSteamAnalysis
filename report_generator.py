@@ -833,7 +833,7 @@ class ReportGenerator:
         <header class="header">
             <h1>🎮 《明末渊虚之羽》Steam评论分析报告</h1>
             <p>基于DeepSeek深度语义分析</p>
-            <p>📊 数据来源：全部中文评论（简体+繁体），截止2024年8月10日</p>
+            <p>📊 数据来源：全部中文评论（简体+繁体），截止2025年8月10日</p>
         <p>生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
         </header>
         
